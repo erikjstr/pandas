@@ -214,7 +214,113 @@ cpdef numeric median(numeric[:] arr):
                 kth_smallest(arr, n // 2 - 1)) / 2
 
 
-# ----------------------------------------------------------------------
+# -------------- Min, Max subsequence
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def max_subseq(ndarray[double_t] arr):
+    cdef:
+        Py_ssize_t i=0, s=0, e=0, T, n
+        double m, S
+
+    n = len(arr)
+
+    if len(arr) == 0:
+        return (-1, -1, None)
+
+    m = arr[0]
+    S = m
+    T = 0
+
+    with nogil:
+        for i in range(1, n):
+            # S = max { S + A[i], A[i] )
+            if (S > 0):
+                S = S + arr[i]
+            else:
+                S = arr[i]
+                T = i
+            if S > m:
+                s = T
+                e = i
+                m = S
+
+    return (s, e, m)
+
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def min_subseq(ndarray[double_t] arr):
+    cdef:
+        Py_ssize_t s, e
+        double m
+
+    (s, e, m) = max_subseq(-arr)
+
+    return (s, e, -m)
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def nanxcorr(ndarray[float64_t, ndim=2] first, ndarray[float64_t, ndim=2] second, bint cov=0, minp=None):
+    cdef:
+        Py_ssize_t i, j, xi, yi, N, K
+        bint minpv
+        ndarray[float64_t, ndim=2] result
+        ndarray[uint8_t, ndim=2] mask
+        int64_t nobs = 0
+        float64_t vx, vy, sumx, sumy, sumxx, sumyy, meanx, meany, divisor
+
+    N, K = (<object> first).shape
+
+    if minp is None:
+        minpv = 1
+    else:
+        minpv = <int>minp
+
+    result = np.empty((K, K), dtype=np.float64)
+    mask = np.isfinite(first).view(np.uint8)
+    mask = np.bitwise_and(np.isfinite(first).view(np.uint8), np.isfinite(second).view(np.uint8))
+
+    with nogil:
+        for xi in range(K):
+            for yi in range(xi + 1):
+                nobs = sumxx = sumyy = sumx = sumy = 0
+                for i in range(N):
+                    if mask[i, xi] and mask[i, yi]:
+                        vx = first[i, xi]
+                        vy = second[i, yi]
+                        nobs += 1
+                        sumx += vx
+                        sumy += vy
+
+                if nobs < minpv:
+                    result[xi, yi] = result[yi, xi] = NaN
+                else:
+                    meanx = sumx / nobs
+                    meany = sumy / nobs
+
+                    # now the cov numerator
+                    sumx = 0
+
+                    for i in range(N):
+                        if mask[i, xi] and mask[i, yi]:
+                            vx = first[i, xi] - meanx
+                            vy = second[i, yi] - meany
+
+                            sumx += vx * vy
+                            sumxx += vx * vx
+                            sumyy += vy * vy
+
+                    divisor = (nobs - 1.0) if cov else sqrt(sumxx * sumyy)
+
+                    if divisor != 0:
+                        result[xi, yi] = result[yi, xi] = sumx / divisor
+                    else:
+                        result[xi, yi] = result[yi, xi] = NaN
+
+    return result
+
+#----------------------------------------------------------------------
 # Pairwise correlation/covariance
 
 
